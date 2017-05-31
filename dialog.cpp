@@ -131,7 +131,7 @@ Dialog::Dialog(QWidget *parent)
     auto vbox = new QVBoxLayout(this);
     vbox->addLayout(hbox);
     vbox->addWidget(m_view, 1);
-    resize(2000, 1200);
+    resize(1280, 800);
 }
 
 Dialog::~Dialog() {}

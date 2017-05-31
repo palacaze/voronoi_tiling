@@ -62,11 +62,30 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, int w, int h) {
     rect.append({tile_size*(w+1.0), tile_size*(h+1.0)});
     rect.append({tile_size*(w+1.0), 0.0});
 
-    boost::polygon::construct_voronoi(g.begin(), g.end(), &vd);
+    boost::polygon::default_voronoi_builder builder;
+
+    // add sacrificial points around the initial grid in order to avoid degenerate cases
+    Grid ge(g.begin(), g.end());
+    for (int x = 0; x <= w; ++x) {
+        ge.emplace_back(tile_size * x, 0);
+        ge.emplace_back(tile_size * x, tile_size * (h+1));
+    }
+
+    for (int y = 0; y <= h; ++y) {
+        ge.emplace_back(0, tile_size * y);
+        ge.emplace_back(tile_size * (w+1), tile_size * y);
+    }
+
+    boost::polygon::insert(ge.begin(), ge.end(), &builder);
+    builder.construct(&vd);
 
     std::vector<QPolygonF> cells;
 
     for (auto &c : vd.cells()) {
+        // ignore cell if contains a sacrificial ponit
+        if (c.source_index() >= g.size())
+            continue;
+
         auto e = c.incident_edge();
         QPolygonF poly;
         do {

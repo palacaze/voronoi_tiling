@@ -12,4 +12,5 @@ SOURCES += \
         dialog.cpp
 
 HEADERS += \
-        dialog.h
+        dialog.h \
+        poisson-grid.h

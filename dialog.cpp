@@ -1,3 +1,4 @@
+#include <QTime>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QLabel>
@@ -9,33 +10,49 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsEllipseItem>
 
+#include <cmath>
 #include <vector>
 #include <random>
+#include <limits>
 
 #include <boost/polygon/point_data.hpp>
 #include <boost/polygon/segment_data.hpp>
 #include <boost/polygon/voronoi.hpp>
 
 #include "dialog.h"
+#include "poisson-grid.h"
 
-static const int tile_size = 50;
-
-using Point = boost::polygon::point_data<int>;
-using Segment = boost::polygon::segment_data<int>;
+using Point = boost::polygon::point_data<double>;
+using Segment = boost::polygon::segment_data<double>;
 using Grid = std::vector<Point>;
 
-static Grid generateGrid(int w, int h, int rnd) {
+
+static Grid generateGrid(int w, int h, int num) {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dis(-rnd/2, rnd/2);
+    std::uniform_real_distribution<double> dis(-0.75, 0.75);
 
     Grid g;
     g.reserve(size_t(w) * size_t(h));
 
-    for (int x = 0; x < w; ++x)
-        for (int y = 0; y < h; ++y)
-            g.emplace_back(tile_size*x + dis(gen) + tile_size/2,
-                           tile_size*y + dis(gen) + tile_size/2);
+    int seed = 0;
+    PoissonGenerator::DefaultPRNG PRNG(seed);
+    const auto points = PoissonGenerator::GeneratePoissonPoints(num, PRNG, num, false);
+    qDebug("Size: %ld", points.size());
+
+    for(const auto &p : points) {
+        double x = double(p.x) * w + dis(gen);
+        if (x > w)
+            x = w;
+        if (x < 0)
+            x = 0;
+        double y = double(p.y) * h + dis(gen);
+        if (y > h)
+            y = h;
+        if (y < 0)
+            y = 0;
+        g.emplace_back(x, y);
+    }
 
     return g;
 }
@@ -43,51 +60,29 @@ static Grid generateGrid(int w, int h, int rnd) {
 static void drawGrid(QGraphicsView *view, const Grid &g, double w, double h) {
     view->scene()->clear();
 
-    QPen pen(Qt::black, 3);
-    view->scene()->addRect(0.0, 0.0, tile_size * w, tile_size * h,
+    QPen pen(Qt::black, 0.1);
+    view->scene()->addRect(0.0, 0.0, w, h,
                            pen, QBrush(Qt::transparent));
 
     pen.setColor(Qt::red);
     for (const auto &p : g)
-        view->scene()->addEllipse(p.x()-3 , p.y()-3, 6, 6, pen, QBrush(Qt::red));
+        view->scene()->addEllipse(p.x() -0.05 , p.y() -0.05, 0.1, 0.1, pen, QBrush(Qt::red));
 
-    view->fitInView(0, 0, tile_size * w, tile_size * h, Qt::KeepAspectRatio);
+    view->fitInView(0, 0, w, h, Qt::KeepAspectRatio);
 }
 
-static std::vector<QPolygonF> computeVoronoi(const Grid &g, int w, int h) {
+static std::vector<QPolygonF> computeVoronoi(const Grid &g, double w, double h) {
     QPolygonF rect;
     rect.append({0.0, 0.0});
-    rect.append({0.0, tile_size * double(h)});
-    rect.append({tile_size * double(w), tile_size * double(h)});
-    rect.append({tile_size * double(w), 0.0});
-
-    // create and add segments to ensure that the diagram spans the whole rect
-    std::vector<Segment> s;
-
-    for (int x = -1; x <= w; ++x) {
-        Point p1(tile_size*(x+0), -2*tile_size);
-        Point p2(tile_size*(x+1), -2*tile_size);
-        s.emplace_back(p1, p2);
-
-        p1 = Point(tile_size*(x+0), (h+2) * tile_size);
-        p2 = Point(tile_size*(x+1), (h+2) * tile_size);
-        s.emplace_back(p1, p2);
-    }
-
-    for (int y = -1; y <= h; ++y) {
-        Point p1(-2*tile_size, tile_size*(y+0));
-        Point p2(-2*tile_size, tile_size*(y+1));
-        s.emplace_back(p1, p2);
-
-        p1 = Point((w+2) * tile_size, tile_size*(y+0));
-        p2 = Point((w+2) * tile_size, tile_size*(y+1));
-        s.emplace_back(p1, p2);
-    }
+    rect.append({0.0, h});
+    rect.append({w, h});
+    rect.append({w, 0.0});
 
     boost::polygon::voronoi_diagram<double> vd;
-    boost::polygon::construct_voronoi(g.begin(), g.end(), s.begin(), s.end(), &vd);
+    boost::polygon::construct_voronoi(g.begin(), g.end(), &vd);
 
     std::vector<QPolygonF> cells;
+    cells.reserve(g.size());
 
     for (auto &c : vd.cells()) {
         if (!c.contains_point())
@@ -97,13 +92,32 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, int w, int h) {
         QPolygonF poly;
         do {
             if (e->is_primary()) {
-                if (e->is_finite())
+                if (e->is_finite()) {
                     poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()));
+                }
                 else {
-                   if (e->vertex0())
-                      poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()));
-                   else if (e->vertex1())
-                      poly.append(QPointF(e->vertex1()->x(), e->vertex1()->y()));
+                    const auto &cell1 = e->cell();
+                    const auto &cell2 = e->twin()->cell();
+                    auto p1 = g[cell1->source_index()];
+                    auto p2 = g[cell2->source_index()];
+                    Point orig(0.5 * (p1.x()+p2.x()), 0.5 * (p1.y()+p2.y()));
+                    Point dir(p1.y() - p2.y(), p2.x() - p1.x());
+                    double coef = w / std::max(fabs(dir.x()), fabs(dir.y()));
+
+                    if (e->vertex0()) {
+                        poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()));
+                    }
+                    else {
+                        poly.append(QPointF(orig.x() - dir.x() * coef,
+                                            orig.y() - dir.y() * coef));
+                    }
+                    if (e->vertex1()) {
+                        poly.append(QPointF(e->vertex1()->x(), e->vertex1()->y()));
+                    }
+                    else {
+                        poly.append(QPointF(orig.x() + dir.x() * coef,
+                                            orig.y() + dir.y() * coef));
+                    }
                 }
             }
             e = e->next();
@@ -116,7 +130,7 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, int w, int h) {
 }
 
 static void drawCells(QGraphicsView *view, const std::vector<QPolygonF> &cells) {
-    QPen pen(Qt::green, 2);
+    QPen pen(Qt::green, 0.05);
     for (const auto &poly : cells)
         view->scene()->addPolygon(poly, pen, QBrush(Qt::transparent));
 }
@@ -126,15 +140,15 @@ Dialog::Dialog(QWidget *parent)
 {
     m_w_spin = new QSpinBox(this);
     m_w_spin->setRange(5, 1000);
-    m_w_spin->setValue(30);
+    m_w_spin->setValue(44);
 
     m_h_spin = new QSpinBox(this);
     m_h_spin->setRange(5, 1000);
-    m_h_spin->setValue(20);
+    m_h_spin->setValue(44);
 
-    m_rand_spin = new QSpinBox(this);
-    m_rand_spin->setRange(0, tile_size - 1);
-    m_rand_spin->setValue(tile_size / 10);
+    m_num_spin = new QSpinBox(this);
+    m_num_spin->setRange(10, 1000);
+    m_num_spin->setValue(50);
 
     auto update = new QPushButton(tr("Update"), this);
     connect(update, SIGNAL(clicked()), SLOT(updateVoronoi()));
@@ -148,8 +162,8 @@ Dialog::Dialog(QWidget *parent)
     hbox->addWidget(new QLabel(tr("Height")));
     hbox->addWidget(m_h_spin);
     hbox->addSpacing(10);
-    hbox->addWidget(new QLabel(tr("Randomness")));
-    hbox->addWidget(m_rand_spin);
+    hbox->addWidget(new QLabel(tr("Number of points")));
+    hbox->addWidget(m_num_spin);
     hbox->addStretch(1);
 
     auto scene = new QGraphicsScene(this);
@@ -165,12 +179,17 @@ Dialog::Dialog(QWidget *parent)
 Dialog::~Dialog() {}
 
 void Dialog::updateVoronoi() {
+    QTime t;
     int w = m_w_spin->value();
     int h = m_h_spin->value();
-    int r = m_rand_spin->value();
+    int n = m_num_spin->value();
 
-    auto grid = generateGrid(w, h, r);
+    t.start();
+
+    auto grid = generateGrid(w, h, n);
     auto vd = computeVoronoi(grid, w, h);
+
+    qDebug("(%d x %d) took %d ms", w, h, t.elapsed());
 
     drawGrid(m_view, grid, w, h);
     drawCells(m_view, vd);

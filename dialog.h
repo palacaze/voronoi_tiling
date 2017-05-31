@@ -19,7 +19,7 @@ public slots:
     void updateVoronoi();
 
 private:
-    QSpinBox *m_w_spin, *m_h_spin, *m_rand_spin;
+    QSpinBox *m_w_spin, *m_h_spin, *m_num_spin;
     QGraphicsView *m_view;
 };
 

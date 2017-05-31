@@ -27,15 +27,15 @@ using Grid = std::vector<Point>;
 static Grid generateGrid(int w, int h, int rnd) {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(-rnd, rnd);
+    std::uniform_int_distribution<int> dis(-rnd/2, rnd/2);
 
     Grid g;
     g.reserve(size_t(w) * size_t(h));
 
     for (int x = 0; x < w; ++x)
         for (int y = 0; y < h; ++y)
-            g.emplace_back(tile_size*(1 + x) + dis(gen),
-                           tile_size*(1 + y) + dis(gen));
+            g.emplace_back(tile_size*x + dis(gen) + tile_size/2,
+                           tile_size*y + dis(gen) + tile_size/2);
 
     return g;
 }
@@ -44,46 +44,53 @@ static void drawGrid(QGraphicsView *view, const Grid &g, double w, double h) {
     view->scene()->clear();
 
     QPen pen(Qt::black, 3);
-    view->scene()->addRect(0, 0, tile_size * (w+1), tile_size* (h+1), pen, QBrush(Qt::transparent));
+    view->scene()->addRect(0.0, 0.0, tile_size * w, tile_size * h,
+                           pen, QBrush(Qt::transparent));
 
     pen.setColor(Qt::red);
     for (const auto &p : g)
         view->scene()->addEllipse(p.x()-3 , p.y()-3, 6, 6, pen, QBrush(Qt::red));
 
-    view->fitInView(0, 0, tile_size*(w+1), tile_size*(h+1), Qt::KeepAspectRatio);
+    view->fitInView(0, 0, tile_size * w, tile_size * h, Qt::KeepAspectRatio);
 }
 
 static std::vector<QPolygonF> computeVoronoi(const Grid &g, int w, int h) {
-    boost::polygon::voronoi_diagram<double> vd;
-
     QPolygonF rect;
     rect.append({0.0, 0.0});
-    rect.append({0.0, tile_size*(h+1.0)});
-    rect.append({tile_size*(w+1.0), tile_size*(h+1.0)});
-    rect.append({tile_size*(w+1.0), 0.0});
+    rect.append({0.0, tile_size * double(h)});
+    rect.append({tile_size * double(w), tile_size * double(h)});
+    rect.append({tile_size * double(w), 0.0});
 
-    boost::polygon::default_voronoi_builder builder;
+    // create and add segments to ensure that the diagram spans the whole rect
+    std::vector<Segment> s;
 
-    // add sacrificial points around the initial grid in order to avoid degenerate cases
-    Grid ge(g.begin(), g.end());
-    for (int x = 0; x <= w; ++x) {
-        ge.emplace_back(tile_size * x, 0);
-        ge.emplace_back(tile_size * x, tile_size * (h+1));
+    for (int x = -1; x <= w; ++x) {
+        Point p1(tile_size*(x+0), -2*tile_size);
+        Point p2(tile_size*(x+1), -2*tile_size);
+        s.emplace_back(p1, p2);
+
+        p1 = Point(tile_size*(x+0), (h+2) * tile_size);
+        p2 = Point(tile_size*(x+1), (h+2) * tile_size);
+        s.emplace_back(p1, p2);
     }
 
-    for (int y = 0; y <= h; ++y) {
-        ge.emplace_back(0, tile_size * y);
-        ge.emplace_back(tile_size * (w+1), tile_size * y);
+    for (int y = -1; y <= h; ++y) {
+        Point p1(-2*tile_size, tile_size*(y+0));
+        Point p2(-2*tile_size, tile_size*(y+1));
+        s.emplace_back(p1, p2);
+
+        p1 = Point((w+2) * tile_size, tile_size*(y+0));
+        p2 = Point((w+2) * tile_size, tile_size*(y+1));
+        s.emplace_back(p1, p2);
     }
 
-    boost::polygon::insert(ge.begin(), ge.end(), &builder);
-    builder.construct(&vd);
+    boost::polygon::voronoi_diagram<double> vd;
+    boost::polygon::construct_voronoi(g.begin(), g.end(), s.begin(), s.end(), &vd);
 
     std::vector<QPolygonF> cells;
 
     for (auto &c : vd.cells()) {
-        // ignore cell if contains a sacrificial ponit
-        if (c.source_index() >= g.size())
+        if (!c.contains_point())
             continue;
 
         auto e = c.incident_edge();
@@ -95,6 +102,8 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, int w, int h) {
                 else {
                    if (e->vertex0())
                       poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()));
+                   else if (e->vertex1())
+                      poly.append(QPointF(e->vertex1()->x(), e->vertex1()->y()));
                 }
             }
             e = e->next();

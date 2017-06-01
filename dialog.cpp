@@ -57,8 +57,7 @@ static Grid generateGrid(int w, int h, int num) {
 
     int seed = 0;
     PoissonGenerator::DefaultPRNG PRNG(seed);
-    const auto points = PoissonGenerator::GeneratePoissonPoints(num, PRNG, num, false);
-    qDebug("Size: %ld", points.size());
+    const auto points = PoissonGenerator::GeneratePoissonPoints(num, PRNG, 30, false);
 
     for(const auto &p : points) {
         double x = double(p.x) * w + dis(gen);
@@ -170,8 +169,8 @@ Dialog::Dialog(QWidget *parent)
     m_h_spin->setValue(44);
 
     m_num_spin = new QSpinBox(this);
-    m_num_spin->setRange(10, 1000);
-    m_num_spin->setValue(50);
+    m_num_spin->setRange(10, 10000);
+    m_num_spin->setValue(1000);
 
     auto update = new QPushButton(tr("Update"), this);
     connect(update, SIGNAL(clicked()), SLOT(updateVoronoi()));
@@ -208,11 +207,12 @@ void Dialog::updateVoronoi() {
     int n = m_num_spin->value();
 
     t.start();
-
     auto grid = generateGrid(w, h, n);
-    auto vd = computeVoronoi(grid, w, h);
+    qDebug("generateGrid took %d ms", t.elapsed());
 
-    qDebug("(%d x %d) took %d ms", w, h, t.elapsed());
+    t.start();
+    auto vd = computeVoronoi(grid, w, h);
+    qDebug("computVoronoi took %d ms", t.elapsed());
 
     drawGrid(m_view, grid, w, h);
     drawCells(m_view, vd);

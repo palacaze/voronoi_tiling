@@ -14,3 +14,6 @@ SOURCES += \
 HEADERS += \
         dialog.h \
         poisson-grid.h
+
+QMAKE_CFLAGS += -fno-omit-frame-pointer -g
+QMAKE_CXXFLAGS += -fno-omit-frame-pointer -g

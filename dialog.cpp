@@ -30,6 +30,22 @@ using Point = boost::polygon::point_data<int>;
 using Segment = boost::polygon::segment_data<int>;
 using Grid = std::vector<Point>;
 
+static QColor colorAt(size_t i) {
+    static const QColor colors[] = {
+        QColor(252, 233,  79), QColor(237, 212,   0), QColor(196, 160,   0),
+        QColor(138, 226,  52), QColor(115, 210,  22), QColor( 78, 154,   6),
+        QColor(252, 175,  62), QColor(245, 121,   0), QColor(206,  92,   0),
+        QColor(114, 159, 207), QColor( 52, 101, 164), QColor( 32,  74, 135),
+        QColor(173, 127, 168), QColor(117,  80, 123), QColor( 92,  53, 102),
+        QColor(233, 185, 110), QColor(193, 125,  17), QColor(143,  89,   2),
+        QColor(239,  41,  41), QColor(204,   0,   0), QColor(164,   0,   0),
+        QColor(238, 238, 236), QColor(211, 215, 207), QColor(186, 189, 182),
+        QColor(136, 138, 133), QColor( 85,  87,  83), QColor( 46,  52,  54),
+        QColor(  0,   0,   0)
+    };
+
+    return colors[i % (sizeof(colors)/sizeof(QColor))];
+}
 
 static Grid generateGrid(int w, int h, int num) {
     std::random_device rd;
@@ -68,11 +84,12 @@ static void drawGrid(QGraphicsView *view, const Grid &g, double w, double h) {
     view->scene()->addRect(0.0, 0.0, w, h,
                            pen, QBrush(Qt::transparent));
 
-    pen.setColor(Qt::red);
-    for (const auto &p : g)
-        view->scene()->addEllipse(double(p.x())/SCALE -0.05,
-                                  double(p.y())/SCALE -0.05,
-                                  0.1, 0.1, pen, QBrush(Qt::red));
+    for (size_t i = 0; i < g.size(); ++i) {
+        pen.setColor(colorAt(i));
+        view->scene()->addEllipse(double(g[i].x())/SCALE -0.1,
+                                  double(g[i].y())/SCALE -0.1,
+                                  0.2, 0.2, pen, QBrush(colorAt(i)));
+    }
 
     view->fitInView(0, 0, w, h, Qt::KeepAspectRatio);
 }
@@ -87,8 +104,7 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, double w, double h) 
     boost::polygon::voronoi_diagram<double> vd;
     boost::polygon::construct_voronoi(g.begin(), g.end(), &vd);
 
-    std::vector<QPolygonF> cells;
-    cells.reserve(g.size());
+    std::vector<QPolygonF> cells(g.size());
 
     for (auto &c : vd.cells()) {
         auto e = c.incident_edge();
@@ -127,16 +143,19 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, double w, double h) 
         for (auto &p : poly)
             p /= SCALE;
 
-        cells.push_back(poly);
+        cells[c.source_index()] = poly;
     }
 
     return cells;
 }
 
 static void drawCells(QGraphicsView *view, const std::vector<QPolygonF> &cells) {
-    QPen pen(Qt::green, 0.1);
-    for (const auto &poly : cells)
-        view->scene()->addPolygon(poly, pen, QBrush(Qt::transparent));
+    QPen pen(Qt::transparent, 0);
+    for (size_t i = 0; i < cells.size(); ++i) {
+        auto col = colorAt(i);
+        col.setAlphaF(0.5);
+        view->scene()->addPolygon(cells[i], pen, QBrush(col));
+    }
 }
 
 Dialog::Dialog(QWidget *parent)

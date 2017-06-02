@@ -190,6 +190,14 @@ Dialog::Dialog(QWidget *parent)
 
 Dialog::~Dialog() {}
 
+
+static double area(const QPolygonF &p) {
+    double a = 0.0;
+    for (int i = 0; i < p.size() - 1; ++i)
+        a += p[i].x() * p[i+1].y() - p[i+1].x() * p[i].y();
+    return 0.5 * a;
+}
+
 void Dialog::updateVoronoi() {
     QTime t;
     int w = m_w_spin->value();
@@ -206,4 +214,11 @@ void Dialog::updateVoronoi() {
 
     drawGrid(m_view, grid, w, h);
     drawCells(m_view, vd);
+
+    // compare areas
+    double total_area = 0.0;
+    for (const auto &p : vd)
+        total_area += area(p);
+
+    qDebug("Tile area: %d, sum of polygons area: %lf", w*h, total_area);
 }

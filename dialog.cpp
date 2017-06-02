@@ -16,7 +16,6 @@
 #include <limits>
 
 #include <boost/polygon/point_data.hpp>
-#include <boost/polygon/segment_data.hpp>
 #include <boost/polygon/voronoi.hpp>
 
 #include "dialog.h"
@@ -27,7 +26,6 @@
 static const int SCALE = 100;
 
 using Point = boost::polygon::point_data<int>;
-using Segment = boost::polygon::segment_data<int>;
 using Grid = std::vector<Point>;
 
 static QColor colorAt(size_t i) {
@@ -93,12 +91,8 @@ static void drawGrid(QGraphicsView *view, const Grid &g, double w, double h) {
     view->fitInView(0, 0, w, h, Qt::KeepAspectRatio);
 }
 
-static std::vector<QPolygonF> computeVoronoi(const Grid &g, double w, double h) {
-    QPolygonF rect;
-    rect.append({0.0, 0.0});
-    rect.append({0.0, SCALE*h});
-    rect.append({SCALE*w, SCALE*h});
-    rect.append({SCALE*w, 0.0});
+static std::vector<QPolygonF> computeVoronoi(const Grid &g, int w, int h) {
+    QPolygonF rect(QRectF(0.0, 0.0, w, h));
 
     boost::polygon::voronoi_diagram<double> vd;
     boost::polygon::construct_voronoi(g.begin(), g.end(), &vd);
@@ -111,7 +105,7 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, double w, double h) 
         do {
             if (e->is_primary()) {
                 if (e->is_finite()) {
-                    poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()));
+                    poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()) / SCALE);
                 }
                 else {
                     const auto &cell1 = e->cell();
@@ -125,24 +119,20 @@ static std::vector<QPolygonF> computeVoronoi(const Grid &g, double w, double h) 
                     double coef = SCALE * w / std::max(fabs(dx), fabs(dy));
 
                     if (e->vertex0())
-                        poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()));
+                        poly.append(QPointF(e->vertex0()->x(), e->vertex0()->y()) / SCALE);
                     else
-                        poly.append(QPointF(ox - dx * coef, oy - dy * coef));
+                        poly.append(QPointF(ox - dx * coef, oy - dy * coef) / SCALE);
 
                     if (e->vertex1())
-                        poly.append(QPointF(e->vertex1()->x(), e->vertex1()->y()));
+                        poly.append(QPointF(e->vertex1()->x(), e->vertex1()->y()) / SCALE);
                     else
-                        poly.append(QPointF(ox + dx * coef, oy + dy * coef));
+                        poly.append(QPointF(ox + dx * coef, oy + dy * coef) / SCALE);
                 }
             }
             e = e->next();
         } while (e != c.incident_edge());
 
-        poly = poly.intersected(rect);
-        for (auto &p : poly)
-            p /= SCALE;
-
-        cells[c.source_index()] = poly;
+        cells[c.source_index()] = poly.intersected(rect);
     }
 
     return cells;
